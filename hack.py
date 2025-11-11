@@ -1,14 +1,28 @@
 import socket
 import sys
-from itertools import product
-import string
-import re
+from pasword_cracker import PasswordCracker
 
-PASSWORD_INGREDIENTS = {char.lower() for char in string.ascii_letters + string.digits}
 
 def get_command_line_arguments():
-    temp = dict.fromkeys(('host', 'port', 'message'))
-    return {key: (int(value) if key == 'port' else value) for key, value in zip(temp.keys(), sys.argv[1:])}
+    """
+    Parses the first three command-line arguments into a dictionary with keys 'host', 'port', and 'message'.
+
+    Assumes sys.argv[1:] provides at least three arguments in order:
+    host (str), port (str, converted to int), message (str).
+    If fewer arguments are provided, the corresponding keys will be omitted from the returned dictionary.
+    If fewer than 3 arguments are provided, the corresponding values will be omitted from the returned dictionary.
+
+    :returns:
+        dict: A dictionary with keys 'host' (str), 'port' (int), and 'message' (str), mapped from sys.argv[1:].
+          The 'port' value is converted to an integer if present.
+
+    Example:
+       Input `python script.py localhost 8080 hello` -> returns {'host': 'localhost', 'port': 8080, 'message': 'hello'}.
+    """
+    params = dict.fromkeys(('host', 'port', 'message'))
+    for key, value in zip(params.keys(), sys.argv[1:]):
+        params[key] = int(value) if key == 'port' else value
+    return params
 
 
 def sent_data_to_server(client_socket, message):
@@ -22,20 +36,14 @@ def sent_data_to_server(client_socket, message):
     return response
 
 
-def create_products(char_set: set | None, repetitions: int = 3):
-    if char_set is None:
-        char_set = PASSWORD_INGREDIENTS
-    return (''.join(x) for x in product(char_set, repeat=repetitions))
-
-
-def send_messages_till_success(client_socket, message, combinations):
+def send_messages_till_success(client_socket, message, combinations, pass_cracker: PasswordCracker):
     if message is not None:
         sent_data_to_server(client_socket, message)
     elif combinations is None or len(combinations) == 0:
         repetitions = 0
         while repetitions >= 0:
             repetitions += 1
-            products_to_check = create_products(None, repetitions)
+            products_to_check = pass_cracker.create_products(None, repetitions)
 
             for element in products_to_check:
                 try:
@@ -59,7 +67,8 @@ def send_messages_till_success(client_socket, message, combinations):
                 break
 
 
-def data_exchange(host, port, message=None, combinations=None):
+def data_exchange(host, port, message=None, combinations=None,
+                  pass_cracker: PasswordCracker = PasswordCracker()) -> None:
     # working with a socket as a context manager
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
         hostname = host
@@ -69,28 +78,13 @@ def data_exchange(host, port, message=None, combinations=None):
         try:
             client_socket.connect(address)
 
-            send_messages_till_success(client_socket, message, combinations)
+            send_messages_till_success(client_socket, message, combinations, pass_cracker)
         except ConnectionRefusedError:
             pass
 
 
-def create_combinations(password: str):
-    if re.search(r'[a-zA-Z]+', password):
-        return list(map(''.join, product(*zip(password.upper(), password.lower()))))
-    else:
-        return [password]
-
-def get_combinations_from_file(filename: str):
-    result = []
-    with open(filename) as file:
-        for line in file:
-            current_password = line.strip()
-            unique_combinations = set(create_combinations(current_password))
-            result.extend(unique_combinations)
-    return result
-
-
 if __name__ == '__main__':
-    passwords_to_check = get_combinations_from_file('passwords.txt')
+    pc = PasswordCracker()
+    passwords_to_check = pc.get_combinations_from_file('passwords.txt')
     exchange_params = get_command_line_arguments()
     data_exchange(**exchange_params, combinations=passwords_to_check)
